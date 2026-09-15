@@ -56,13 +56,12 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Serve frontend in production
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '..', 'frontend', 'dist')));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'));
-    });
-  }
+  // Serve frontend
+  const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
 
   // Error handler
   app.use((err, req, res, next) => {
