@@ -1,0 +1,9 @@
+node_modules/
+newton.db
+*.log
+dist/
+.env
+uploads/videos/*
+uploads/sheets/*
+!uploads/videos/.gitkeep
+!uploads/sheets/.gitkeep
