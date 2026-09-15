@@ -7,9 +7,11 @@
     "dev": "cd backend && node server.js",
     "build": "cd frontend && npm install && npm run build",
     "start": "cd backend && node server.js",
-    "seed": "cd backend && node seed.js"
+    "seed": "cd backend && node seed.js",
+    "seed:supabase": "cd backend && node seed-supabase.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "bcryptjs": "^2.4.3",
     "sql.js": "^1.11.0",
     "cors": "^2.8.5",

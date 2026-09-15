@@ -9,14 +9,16 @@ const helmet = require('helmet');
 const { initDatabase } = require(path.join(BACKEND, 'config', 'database'));
 
 let app;
-let dbReady = false;
+let initPromise = null;
 
 async function getApp() {
-  if (app && dbReady) return app;
-  if (!dbReady) {
-    await initDatabase();
-    dbReady = true;
+  if (app) return app;
+
+  // Only init once
+  if (!initPromise) {
+    initPromise = initDatabase();
   }
+  await initPromise;
 
   app = express();
 

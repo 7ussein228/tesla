@@ -6,6 +6,7 @@ const dbPath = path.join(__dirname, '..', 'newton.db');
 let db = null;
 
 const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
+const useSupabase = !!process.env.SUPABASE_URL;
 
 class DatabaseWrapper {
   constructor(sqlDb) { this.sqlDb = sqlDb; }
@@ -72,6 +73,15 @@ class DatabaseWrapper {
 }
 
 async function initDatabase() {
+  // Use Supabase if configured
+  if (useSupabase) {
+    const { getSupabase, SupabaseWrapper } = require('./supabase');
+    db = new SupabaseWrapper(getSupabase());
+    console.log('✅ Using Supabase database');
+    return db;
+  }
+
+  // Otherwise use SQLite (sql.js)
   const SQL = await initSqlJs();
 
   if (!isVercel && fs.existsSync(dbPath)) {
@@ -210,8 +220,13 @@ async function initDatabase() {
   } catch (e) { /* column already exists */ }
 
   // Seed data on Vercel (in-memory DB is empty each cold start)
-  if (isVercel) {
+  if (isVercel && !useSupabase) {
     try { require(path.join(__dirname, '..', 'seed'))(db); } catch(e) {}
+  }
+
+  // Seed Supabase if empty
+  if (useSupabase) {
+    try { await require(path.join(__dirname, '..', 'seed-supabase'))(); } catch(e) { console.error('Supabase seed error:', e.message); }
   }
 
   return db;
