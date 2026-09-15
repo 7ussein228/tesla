@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useNavigate } from 'react-router-dom'
 
 export default function TeacherDashboard() {
   const { user, token } = useAuth()
+  const navigate = useNavigate()
   const [tab, setTab] = useState('courses')
   const [courses, setCourses] = useState([])
   const [pendingHomework, setPendingHomework] = useState([])
   const [showAddCourse, setShowAddCourse] = useState(false)
   const [showAddLecture, setShowAddLecture] = useState(false)
-  const [showAddQuiz, setShowAddQuiz] = useState(false)
   const [newCourse, setNewCourse] = useState({ title: '', description: '', stage: 'ثالث ثانوي', price: 0 })
   const [newLecture, setNewLecture] = useState({ title: '', course_id: '', duration: 60 })
-  const [newQuiz, setNewQuiz] = useState({ course_id: '', title: '', questions: [] })
 
   useEffect(() => {
     loadCourses()
@@ -103,7 +103,7 @@ export default function TeacherDashboard() {
                   <td><span className={`status-badge ${c.is_published ? 'status-active' : 'status-pending'}`}>{c.is_published ? 'نشط' : 'مسودة'}</span></td>
                   <td>
                     <button className="action-btn" onClick={() => { setNewLecture({ ...newLecture, course_id: c.id }); setShowAddLecture(true) }}><i className="fa-solid fa-plus"></i> محاضرة</button>
-                    <button className="action-btn" onClick={() => { setNewQuiz({ ...newQuiz, course_id: c.id }); setShowAddQuiz(true) }} style={{ marginRight: 4 }}><i className="fa-solid fa-plus"></i> كويز</button>
+                    <button className="action-btn" onClick={() => navigate(`/teacher/quiz-builder?course_id=${c.id}`)} style={{ marginRight: 4 }}><i className="fa-solid fa-plus"></i> كويز</button>
                   </td>
                 </tr>
               ))}
@@ -132,9 +132,11 @@ export default function TeacherDashboard() {
         <div className="glass-box">
           <div className="panel-header">
             <h2>إدارة الكويزات</h2>
-            <button className="btn-primary" onClick={() => setShowAddQuiz(true)}><i className="fa-solid fa-plus"></i> كويز جديد</button>
+            <button className="btn-primary" onClick={() => navigate('/teacher/quiz-builder')}>
+              <i className="fa-solid fa-wand-magic-sparkles"></i> منشئ الكويزات الذكي
+            </button>
           </div>
-          <p style={{ color: 'var(--text-dim)' }}>أنشئ كويزات تفاعلية لاختبار طلابك</p>
+          <p style={{ color: 'var(--text-dim)' }}>أنشئ كويزات تفاعلية لاختبار طلابك مع دعم الصور والكاميرا</p>
         </div>
       )}
 
@@ -208,30 +210,6 @@ export default function TeacherDashboard() {
         </div>
       )}
 
-      {/* Add Quiz Modal */}
-      {showAddQuiz && (
-        <div className="modal-overlay active" onClick={() => setShowAddQuiz(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowAddQuiz(false)}><i className="fa-solid fa-xmark"></i></button>
-            <h2>إنشاء كويز جديد</h2>
-            <div className="form-group"><label>الكورس</label>
-              <select value={newQuiz.course_id} onChange={e => setNewQuiz({ ...newQuiz, course_id: e.target.value })}>
-                <option value="">اختر الكورس</option>
-                {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-              </select>
-            </div>
-            <div className="form-group"><label>عنوان الكويز</label><input value={newQuiz.title} onChange={e => setNewQuiz({ ...newQuiz, title: e.target.value })} placeholder="كويز قانون أوم" /></div>
-            <button className="btn-primary" onClick={async () => {
-              const res = await fetch('/api/quizzes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ ...newQuiz, time_limit: 15, passing_score: 60, questions: [] })
-              })
-              if (res.ok) { setShowAddQuiz(false); setNewQuiz({ course_id: '', title: '', questions: [] }) }
-            }} style={{ width: '100%', justifyContent: 'center' }}><i className="fa-solid fa-check"></i> إنشاء الكويز</button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

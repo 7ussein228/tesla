@@ -151,7 +151,8 @@ async function initDatabase() {
       option_d TEXT DEFAULT '',
       correct_answer TEXT NOT NULL,
       points INTEGER DEFAULT 1,
-      sort_order INTEGER DEFAULT 0
+      sort_order INTEGER DEFAULT 0,
+      image_url TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS quiz_attempts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +198,11 @@ async function initDatabase() {
       certificate_code TEXT UNIQUE NOT NULL
     );
   `);
+
+  // Migration: add image_url to quiz_questions if missing
+  try {
+    db.exec(`ALTER TABLE quiz_questions ADD COLUMN image_url TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
 
   return db;
 }

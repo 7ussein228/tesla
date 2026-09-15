@@ -12,7 +12,9 @@ export default function StudentDashboard() {
   const [activeQuiz, setActiveQuiz] = useState(null)
   const [quizAnswers, setQuizAnswers] = useState({})
   const [quizResult, setQuizResult] = useState(null)
-  const [homework, setHomework] = useState([])
+  const [homeworkFile, setHomeworkFile] = useState(null)
+  const [uploadingHw, setUploadingHw] = useState(false)
+  const [myHomework, setMyHomework] = useState([])
   const [leaderboard, setLeaderboard] = useState([])
   const [notifications, setNotifications] = useState([])
 
@@ -20,6 +22,8 @@ export default function StudentDashboard() {
     fetch('/api/courses/my/enrolled', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(setCourses).catch(() => {})
     fetch('/api/admin/leaderboard').then(r => r.json()).then(setLeaderboard).catch(() => {})
+    fetch('/api/homework/my', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(setMyHomework).catch(() => {})
   }, [token])
 
   const loadCourse = async (courseId) => {
@@ -56,6 +60,31 @@ export default function StudentDashboard() {
       body: JSON.stringify({ completed: 1, watched_seconds: 3600 })
     })
     if (selectedCourse) loadCourse(selectedCourse.id)
+  }
+
+  const submitHomework = async (sheetId) => {
+    if (!homeworkFile) return alert('اختر ملف أولاً')
+    setUploadingHw(true)
+    const formData = new FormData()
+    formData.append('file', homeworkFile)
+    formData.append('sheet_id', sheetId)
+    try {
+      const res = await fetch('/api/homework/submit', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      })
+      if (res.ok) {
+        alert('تم تسليم الواجب بنجاح!')
+        setHomeworkFile(null)
+        fetch('/api/homework/my', { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.json()).then(setMyHomework).catch(() => {})
+      } else {
+        const err = await res.json()
+        alert(err.error || 'خطأ في التسليم')
+      }
+    } catch (e) { alert('خطأ في التسليم') }
+    setUploadingHw(false)
   }
 
   return (
@@ -158,9 +187,17 @@ export default function StudentDashboard() {
                 <div>
                   <h3 style={{ marginBottom: 16 }}>{activeQuiz.title}</h3>
                   {activeQuiz.questions?.map((q, i) => (
-                    <div key={q.id} style={{ marginBottom: 20 }}>
-                      <p style={{ fontWeight: 700, marginBottom: 10 }}>{i + 1}. {q.question}</p>
-                      {['A', 'B', 'C'].filter(k => q[`option_${k.toLowerCase()}`]).map(opt => (
+                    <div key={q.id} className="quiz-question-card" style={{ marginBottom: 24, padding: 20, background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid var(--border-plasma)' }}>
+                      <p style={{ fontWeight: 700, marginBottom: 12, fontSize: '1.05rem' }}>
+                        <span style={{ color: 'var(--neon-blue)', marginLeft: 8 }}>{i + 1}.</span>
+                        {q.question}
+                      </p>
+                      {q.image_url && (
+                        <div style={{ marginBottom: 14 }}>
+                          <img src={q.image_url} alt={`صورة السؤال ${i + 1}`} style={{ maxWidth: '100%', maxHeight: 250, borderRadius: 10, border: '1px solid var(--border-plasma)' }} />
+                        </div>
+                      )}
+                      {['A', 'B', 'C', 'D'].filter(k => q[`option_${k.toLowerCase()}`]).map(opt => (
                         <label key={opt} className="option-item" style={{ borderColor: quizResult && activeQuiz.questions[i]?.correct_answer === opt ? 'var(--neon-green)' : undefined }}>
                           <input type="radio" name={`q_${q.id}`} value={opt} checked={quizAnswers[q.id] === opt} onChange={() => setQuizAnswers({ ...quizAnswers, [q.id]: opt })} />
                           <span>{q[`option_${opt.toLowerCase()}`]}</span>
@@ -188,9 +225,50 @@ export default function StudentDashboard() {
           {tab === 'homework' && (
             <div className="glass-box">
               <h2 style={{ color: 'var(--neon-green)', marginBottom: 16 }}><i className="fa-solid fa-upload"></i> تسليم الواجبات</h2>
-              <p style={{ color: 'var(--text-dim)', marginBottom: 16 }}>ارفع صورة أو ملف PDF لحل مسائل الشيت</p>
-              <input type="file" style={{ marginBottom: 16, color: 'var(--text-dim)' }} />
-              <button className="btn-primary" onClick={() => alert('تم إرسال الشيت بنجاح!')}><i className="fa-solid fa-upload"></i> إرسال الشيت</button>
+              
+              {/* Submit new homework */}
+              {selectedCourse?.sheets?.length > 0 ? (
+                <>
+                  <p style={{ color: 'var(--text-dim)', marginBottom: 16 }}>ارفع صورة أو ملف PDF لحل مسائل الشيت</p>
+                  {selectedCourse.sheets.map(sheet => (
+                    <div key={sheet.id} style={{ marginBottom: 16, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px solid var(--border-plasma)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <span style={{ fontWeight: 700 }}><i className="fa-solid fa-file-lines" style={{ color: 'var(--atom-gold)', marginLeft: 8 }}></i>{sheet.title}</span>
+                        {sheet.file_url && <a href={sheet.file_url} target="_blank" rel="noreferrer" className="action-btn"><i className="fa-solid fa-download"></i> تحميل الشيت</a>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <input type="file" accept="image/*,.pdf" onChange={e => setHomeworkFile(e.target.files[0])} style={{ flex: 1, color: 'var(--text-dim)' }} />
+                        <button className="btn-primary btn-sm" onClick={() => submitHomework(sheet.id)} disabled={uploadingHw}>
+                          <i className={`fa-solid ${uploadingHw ? 'fa-spinner fa-spin' : 'fa-upload'}`}></i> {uploadingHw ? 'جاري التسليم...' : 'تسليم'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p style={{ color: 'var(--text-dim)', textAlign: 'center', padding: 30 }}>لا توجد شيتات في هذا الكورس</p>
+              )}
+
+              {/* My submitted homework */}
+              {myHomework.length > 0 && (
+                <div style={{ marginTop: 24 }}>
+                  <h3 style={{ marginBottom: 12, color: 'var(--neon-blue)' }}><i className="fa-solid fa-clock-rotate-left"></i> واجباتي السابقة</h3>
+                  <table className="data-table">
+                    <thead><tr><th>الشيت</th><th>الكورس</th><th>التاريخ</th><th>الحالة</th><th>الدرجة</th></tr></thead>
+                    <tbody>
+                      {myHomework.map(hw => (
+                        <tr key={hw.id}>
+                          <td>{hw.sheet_title}</td>
+                          <td>{hw.course_title}</td>
+                          <td>{new Date(hw.submitted_at).toLocaleDateString('ar-EG')}</td>
+                          <td><span className={`status-badge ${hw.status === 'graded' ? 'status-active' : 'status-pending'}`}>{hw.status === 'graded' ? 'تم التصحيح' : 'قيد المراجعة'}</span></td>
+                          <td>{hw.grade !== null ? `${hw.grade}%` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

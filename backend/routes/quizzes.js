@@ -1,9 +1,38 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const db = getDb();
 
 const router = express.Router();
+
+// Quiz image upload config
+const quizImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads', 'quizzes')),
+  filename: (req, file, cb) => cb(null, 'quiz-' + uuidv4() + path.extname(file.originalname))
+});
+const quizImageUpload = multer({
+  storage: quizImageStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp|pdf/;
+    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mime = allowed.test(file.mimetype);
+    cb(null, ext || mime);
+  }
+});
+
+// POST /api/quizzes/upload-image - upload question image
+router.post('/upload-image', auth, authorize('teacher', 'admin'), quizImageUpload.single('image'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
+    res.json({ url: `/uploads/quizzes/${req.file.filename}`, filename: req.file.originalname });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/quizzes/course/:courseId
 router.get('/course/:courseId', (req, res) => {
@@ -38,14 +67,46 @@ router.post('/', auth, authorize('teacher', 'admin'), (req, res) => {
     const quizId = result.lastInsertRowid;
     if (questions && Array.isArray(questions)) {
       const insert = db.prepare(
-        'INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, points, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, points, sort_order, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
       questions.forEach((q, i) => {
-        insert.run(quizId, q.question, q.option_a, q.option_b, q.option_c, q.option_d || '', q.correct_answer, q.points || 1, i);
+        insert.run(quizId, q.question || '', q.option_a || '', q.option_b || '', q.option_c || '', q.option_d || '', q.correct_answer || 'A', q.points || 1, i, q.image_url || '');
       });
     }
     const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
     res.json(quiz);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/quizzes/:id/questions - add questions to existing quiz
+router.post('/:id/questions', auth, authorize('teacher', 'admin'), (req, res) => {
+  try {
+    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
+    if (!quiz) return res.status(404).json({ error: 'الكويز غير موجود' });
+    const { questions } = req.body;
+    if (!questions || !Array.isArray(questions)) return res.status(400).json({ error: 'الأسئلة مطلوبة' });
+    const existingCount = db.prepare('SELECT COUNT(*) as cnt FROM quiz_questions WHERE quiz_id = ?').get(req.params.id).cnt;
+    const insert = db.prepare(
+      'INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, points, sort_order, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    questions.forEach((q, i) => {
+      insert.run(req.params.id, q.question || '', q.option_a || '', q.option_b || '', q.option_c || '', q.option_d || '', q.correct_answer || 'A', q.points || 1, existingCount + i, q.image_url || '');
+    });
+    const updatedQuiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
+    const allQuestions = db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order').all(req.params.id);
+    res.json({ ...updatedQuiz, questions: allQuestions });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/quizzes/:quizId/questions/:questionId - delete a question
+router.delete('/:quizId/questions/:questionId', auth, authorize('teacher', 'admin'), (req, res) => {
+  try {
+    db.prepare('DELETE FROM quiz_questions WHERE id = ? AND quiz_id = ?').run(req.params.questionId, req.params.quizId);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
