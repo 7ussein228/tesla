@@ -1,9 +1,12 @@
 const bcrypt = require('bcryptjs');
-const { initDatabase, getDb } = require('./config/database');
 
-async function seed() {
-  await initDatabase();
-  const db = getDb();
+async function seed(externalDb) {
+  const { initDatabase, getDb } = require('./config/database');
+  
+  if (!externalDb) {
+    await initDatabase();
+  }
+  const db = externalDb || getDb();
   console.log('🌱 Seeding database...');
 
 const hash = bcrypt.hashSync('123456', 10);
@@ -122,4 +125,9 @@ console.log('📧 Teacher: teacher@newton.edu / 123456');
 console.log('📧 Student: rawan@student.com / 123456');
 }
 
-seed().catch(err => { console.error('Seed failed:', err); process.exit(1); });
+// Run standalone
+if (require.main === module) {
+  seed().catch(err => { console.error('Seed failed:', err); process.exit(1); });
+}
+
+module.exports = seed;

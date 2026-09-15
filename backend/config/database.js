@@ -5,7 +5,8 @@ const path = require('path');
 const dbPath = path.join(__dirname, '..', 'newton.db');
 let db = null;
 
-// sql.js wrapper to mimic better-sqlite3 API
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
+
 class DatabaseWrapper {
   constructor(sqlDb) { this.sqlDb = sqlDb; }
 
@@ -61,15 +62,19 @@ class DatabaseWrapper {
   }
 
   save() {
-    const data = this.sqlDb.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
+    if (isVercel) return; // Skip file writes on Vercel
+    try {
+      const data = this.sqlDb.export();
+      const buffer = Buffer.from(data);
+      fs.writeFileSync(dbPath, buffer);
+    } catch (e) { /* read-only filesystem */ }
   }
 }
 
 async function initDatabase() {
   const SQL = await initSqlJs();
-  if (fs.existsSync(dbPath)) {
+
+  if (!isVercel && fs.existsSync(dbPath)) {
     const fileBuffer = fs.readFileSync(dbPath);
     db = new DatabaseWrapper(new SQL.Database(fileBuffer));
   } else {
@@ -204,10 +209,14 @@ async function initDatabase() {
     db.exec(`ALTER TABLE quiz_questions ADD COLUMN image_url TEXT DEFAULT ''`);
   } catch (e) { /* column already exists */ }
 
+  // Seed data on Vercel (in-memory DB is empty each cold start)
+  if (isVercel) {
+    try { require(path.join(__dirname, '..', 'seed'))(db); } catch(e) {}
+  }
+
   return db;
 }
 
-// Lazy getter - initDatabase must be called before using db
 function getDb() {
   if (!db) throw new Error('Database not initialized. Call initDatabase() first.');
   return db;

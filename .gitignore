@@ -5,5 +5,8 @@ dist/
 .env
 uploads/videos/*
 uploads/sheets/*
+uploads/quizzes/*
 !uploads/videos/.gitkeep
 !uploads/sheets/.gitkeep
+!uploads/quizzes/.gitkeep
+.vercel
