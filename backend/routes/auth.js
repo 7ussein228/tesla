@@ -8,22 +8,22 @@ const db = getDb();
 const router = express.Router();
 
 // POST /api/auth/register
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, stage, phone } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'الاسم والبريد وكلمة المرور مطلوبين' });
     }
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) {
       return res.status(409).json({ error: 'البريد الإلكتروني مسجل بالفعل' });
     }
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare(
+    const result = await db.prepare(
       'INSERT INTO users (name, email, password, role, stage, phone) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(name, email, hash, role || 'student', stage || '', phone || '');
 
-    const user = db.prepare('SELECT id, name, email, role, stage, energy FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const user = await db.prepare('SELECT id, name, email, role, stage, energy FROM users WHERE id = ?').get(result.lastInsertRowid);
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 
     res.json({ token, user });
@@ -33,17 +33,17 @@ router.post('/register', (req, res) => {
 });
 
 // POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'البريد وكلمة المرور مطلوبين' });
     }
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
     }
-    db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+    await db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     const { password: _, ...safeUser } = user;
     res.json({ token, user: safeUser });
@@ -53,9 +53,9 @@ router.post('/login', (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', auth, (req, res) => {
+router.get('/me', auth, async (req, res) => {
   try {
-    const user = db.prepare('SELECT id, name, email, role, stage, phone, energy, created_at FROM users WHERE id = ?').get(req.user.id);
+    const user = await db.prepare('SELECT id, name, email, role, stage, phone, energy, created_at FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
     res.json(user);
   } catch (err) {

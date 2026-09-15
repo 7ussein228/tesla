@@ -15,15 +15,15 @@ const storage = multer.diskStorage({
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // POST /api/homework/submit
-router.post('/submit', auth, upload.single('file'), (req, res) => {
+router.post('/submit', auth, upload.single('file'), async (req, res) => {
   try {
     const { sheet_id } = req.body;
     if (!sheet_id) return res.status(400).json({ error: 'sheet_id مطلوب' });
     const fileUrl = req.file ? `/uploads/sheets/${req.file.filename}` : '';
-    const result = db.prepare(
+    const result = await db.prepare(
       'INSERT INTO homework (student_id, sheet_id, file_url) VALUES (?, ?, ?)'
     ).run(req.user.id, sheet_id, fileUrl);
-    const hw = db.prepare('SELECT * FROM homework WHERE id = ?').get(result.lastInsertRowid);
+    const hw = await db.prepare('SELECT * FROM homework WHERE id = ?').get(result.lastInsertRowid);
     res.json(hw);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -31,9 +31,9 @@ router.post('/submit', auth, upload.single('file'), (req, res) => {
 });
 
 // GET /api/homework/my
-router.get('/my', auth, (req, res) => {
+router.get('/my', auth, async (req, res) => {
   try {
-    const homework = db.prepare(`
+    const homework = await db.prepare(`
       SELECT h.*, s.title as sheet_title, c.title as course_title
       FROM homework h
       JOIN sheets s ON h.sheet_id = s.id
@@ -48,9 +48,9 @@ router.get('/my', auth, (req, res) => {
 });
 
 // GET /api/homework/pending - teacher view pending
-router.get('/pending', auth, authorize('teacher', 'admin'), (req, res) => {
+router.get('/pending', auth, authorize('teacher', 'admin'), async (req, res) => {
   try {
-    const homework = db.prepare(`
+    const homework = await db.prepare(`
       SELECT h.*, s.title as sheet_title, c.title as course_title, u.name as student_name
       FROM homework h
       JOIN sheets s ON h.sheet_id = s.id
@@ -66,16 +66,16 @@ router.get('/pending', auth, authorize('teacher', 'admin'), (req, res) => {
 });
 
 // PUT /api/homework/:id/grade
-router.put('/:id/grade', auth, authorize('teacher', 'admin'), (req, res) => {
+router.put('/:id/grade', auth, authorize('teacher', 'admin'), async (req, res) => {
   try {
     const { grade, feedback } = req.body;
-    db.prepare(`
+    await db.prepare(`
       UPDATE homework SET grade = ?, feedback = ?, status = 'graded', graded_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(grade, feedback || '', req.params.id);
-    const hw = db.prepare('SELECT * FROM homework WHERE id = ?').get(req.params.id);
+    const hw = await db.prepare('SELECT * FROM homework WHERE id = ?').get(req.params.id);
     if (hw) {
-      db.prepare('UPDATE users SET energy = energy + ? WHERE id = ?').run(grade || 0, hw.student_id);
+      await db.prepare('UPDATE users SET energy = energy + ? WHERE id = ?').run(grade || 0, hw.student_id);
     }
     res.json(hw);
   } catch (err) {

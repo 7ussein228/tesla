@@ -25,7 +25,7 @@ const quizImageUpload = multer({
 });
 
 // POST /api/quizzes/upload-image - upload question image
-router.post('/upload-image', auth, authorize('teacher', 'admin'), quizImageUpload.single('image'), (req, res) => {
+router.post('/upload-image', auth, authorize('teacher', 'admin'), quizImageUpload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
     res.json({ url: `/uploads/quizzes/${req.file.filename}`, filename: req.file.originalname });
@@ -35,9 +35,9 @@ router.post('/upload-image', auth, authorize('teacher', 'admin'), quizImageUploa
 });
 
 // GET /api/quizzes/course/:courseId
-router.get('/course/:courseId', (req, res) => {
+router.get('/course/:courseId', async (req, res) => {
   try {
-    const quizzes = db.prepare('SELECT * FROM quizzes WHERE course_id = ?').all(req.params.courseId);
+    const quizzes = await db.prepare('SELECT * FROM quizzes WHERE course_id = ?').all(req.params.courseId);
     res.json(quizzes);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -45,11 +45,11 @@ router.get('/course/:courseId', (req, res) => {
 });
 
 // GET /api/quizzes/:id
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
+    const quiz = await db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
     if (!quiz) return res.status(404).json({ error: 'الكويز غير موجود' });
-    const questions = db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order').all(req.params.id);
+    const questions = await db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order').all(req.params.id);
     res.json({ ...quiz, questions });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -57,11 +57,11 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/quizzes - teacher creates quiz
-router.post('/', auth, authorize('teacher', 'admin'), (req, res) => {
+router.post('/', auth, authorize('teacher', 'admin'), async (req, res) => {
   try {
     const { course_id, title, description, time_limit, passing_score, questions } = req.body;
     if (!course_id || !title) return res.status(400).json({ error: 'course_id و title مطلوبين' });
-    const result = db.prepare(
+    const result = await db.prepare(
       'INSERT INTO quizzes (course_id, title, description, time_limit, passing_score) VALUES (?, ?, ?, ?, ?)'
     ).run(course_id, title, description || '', time_limit || 15, passing_score || 60);
     const quizId = result.lastInsertRowid;
@@ -69,11 +69,11 @@ router.post('/', auth, authorize('teacher', 'admin'), (req, res) => {
       const insert = db.prepare(
         'INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, points, sort_order, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
-      questions.forEach((q, i) => {
-        insert.run(quizId, q.question || '', q.option_a || '', q.option_b || '', q.option_c || '', q.option_d || '', q.correct_answer || 'A', q.points || 1, i, q.image_url || '');
-      });
+      for (const q of questions) {
+        await insert.run(quizId, q.question || '', q.option_a || '', q.option_b || '', q.option_c || '', q.option_d || '', q.correct_answer || 'A', q.points || 1, q.image_url || '');
+      }
     }
-    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
+    const quiz = await db.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
     res.json(quiz);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -81,21 +81,21 @@ router.post('/', auth, authorize('teacher', 'admin'), (req, res) => {
 });
 
 // POST /api/quizzes/:id/questions - add questions to existing quiz
-router.post('/:id/questions', auth, authorize('teacher', 'admin'), (req, res) => {
+router.post('/:id/questions', auth, authorize('teacher', 'admin'), async (req, res) => {
   try {
-    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
+    const quiz = await db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
     if (!quiz) return res.status(404).json({ error: 'الكويز غير موجود' });
     const { questions } = req.body;
     if (!questions || !Array.isArray(questions)) return res.status(400).json({ error: 'الأسئلة مطلوبة' });
-    const existingCount = db.prepare('SELECT COUNT(*) as cnt FROM quiz_questions WHERE quiz_id = ?').get(req.params.id).cnt;
+    const existingCount = (await db.prepare('SELECT COUNT(*) as cnt FROM quiz_questions WHERE quiz_id = ?').get(req.params.id)).cnt;
     const insert = db.prepare(
       'INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, points, sort_order, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    questions.forEach((q, i) => {
-      insert.run(req.params.id, q.question || '', q.option_a || '', q.option_b || '', q.option_c || '', q.option_d || '', q.correct_answer || 'A', q.points || 1, existingCount + i, q.image_url || '');
-    });
-    const updatedQuiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
-    const allQuestions = db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order').all(req.params.id);
+    for (const q of questions) {
+      await insert.run(req.params.id, q.question || '', q.option_a || '', q.option_b || '', q.option_c || '', q.option_d || '', q.correct_answer || 'A', q.points || 1, existingCount + q.image_url || '');
+    }
+    const updatedQuiz = await db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
+    const allQuestions = await db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order').all(req.params.id);
     res.json({ ...updatedQuiz, questions: allQuestions });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -103,9 +103,9 @@ router.post('/:id/questions', auth, authorize('teacher', 'admin'), (req, res) =>
 });
 
 // DELETE /api/quizzes/:quizId/questions/:questionId - delete a question
-router.delete('/:quizId/questions/:questionId', auth, authorize('teacher', 'admin'), (req, res) => {
+router.delete('/:quizId/questions/:questionId', auth, authorize('teacher', 'admin'), async (req, res) => {
   try {
-    db.prepare('DELETE FROM quiz_questions WHERE id = ? AND quiz_id = ?').run(req.params.questionId, req.params.quizId);
+    await db.prepare('DELETE FROM quiz_questions WHERE id = ? AND quiz_id = ?').run(req.params.questionId, req.params.quizId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -113,12 +113,12 @@ router.delete('/:quizId/questions/:questionId', auth, authorize('teacher', 'admi
 });
 
 // POST /api/quizzes/:id/submit
-router.post('/:id/submit', auth, (req, res) => {
+router.post('/:id/submit', auth, async (req, res) => {
   try {
-    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
+    const quiz = await db.prepare('SELECT * FROM quizzes WHERE id = ?').get(req.params.id);
     if (!quiz) return res.status(404).json({ error: 'الكويز غير موجود' });
     const { answers } = req.body;
-    const questions = db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ?').all(req.params.id);
+    const questions = await db.prepare('SELECT * FROM quiz_questions WHERE quiz_id = ?').all(req.params.id);
     let score = 0;
     let totalPoints = 0;
     const results = questions.map(q => {
@@ -129,12 +129,12 @@ router.post('/:id/submit', auth, (req, res) => {
       return { id: q.id, correct: isCorrect, correct_answer: q.correct_answer };
     });
     const percentage = totalPoints > 0 ? Math.round((score / totalPoints) * 100) : 0;
-    db.prepare(
+    await db.prepare(
       'INSERT INTO quiz_attempts (student_id, quiz_id, score, total_points, answers, completed_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'
     ).run(req.user.id, req.params.id, percentage, totalPoints, JSON.stringify(answers));
     // Add energy
     if (percentage >= quiz.passing_score) {
-      db.prepare('UPDATE users SET energy = energy + ? WHERE id = ?').run(percentage, req.user.id);
+      await db.prepare('UPDATE users SET energy = energy + ? WHERE id = ?').run(percentage, req.user.id);
     }
     res.json({ score: percentage, total_points: totalPoints, passed: percentage >= quiz.passing_score, results });
   } catch (err) {
@@ -143,9 +143,9 @@ router.post('/:id/submit', auth, (req, res) => {
 });
 
 // GET /api/quizzes/:id/attempts - teacher view attempts
-router.get('/:id/attempts', auth, authorize('teacher', 'admin'), (req, res) => {
+router.get('/:id/attempts', auth, authorize('teacher', 'admin'), async (req, res) => {
   try {
-    const attempts = db.prepare(`
+    const attempts = await db.prepare(`
       SELECT qa.*, u.name as student_name
       FROM quiz_attempts qa JOIN users u ON qa.student_id = u.id
       WHERE qa.quiz_id = ?
