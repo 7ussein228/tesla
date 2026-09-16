@@ -1,25 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryOne, runInsert } from '@/lib/db';
+import { supabase, dbInsert } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
 export const POST = requireAuth(async (req: NextRequest, user) => {
   try {
-    const { id } = await req.nextUrl.pathname.match(/\/courses\/(\d+)\/enroll/)
-      ? { id: req.nextUrl.pathname.split('/')[3] }
-      : { id: '' };
+    const parts = req.nextUrl.pathname.split('/');
+    const courseId = parts[3];
 
-    const existing = await queryOne(
-      'SELECT id FROM enrollments WHERE student_id = $1 AND course_id = $2',
-      [String(user.id), id]
-    );
+    const { data: existing } = await supabase
+      .from('enrollments')
+      .select('id')
+      .eq('student_id', user.id)
+      .eq('course_id', courseId)
+      .single();
+
     if (existing) {
       return NextResponse.json({ error: 'أنت مسجل بالفعل في هذا الكورس' }, { status: 409 });
     }
 
-    await runInsert(
-      'INSERT INTO enrollments (student_id, course_id) VALUES ($1, $2)',
-      [String(user.id), id]
-    );
+    const result = await dbInsert('enrollments', {
+      student_id: user.id,
+      course_id: Number(courseId),
+    });
+
+    if (!result) {
+      return NextResponse.json({ error: 'خطأ في التسجيل' }, { status: 500 });
+    }
+
     return NextResponse.json({ message: 'تم التسجيل بنجاح' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'خطأ غير معروف';

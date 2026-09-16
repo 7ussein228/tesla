@@ -1,21 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryOne, queryAll } from '@/lib/db';
+import { supabase, dbCount } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 
 export const GET = requireRole(['admin'], async (req: NextRequest) => {
   try {
-    const students = (await queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM users WHERE role = 'student'"))?.cnt ?? 0;
-    const teachers = (await queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM users WHERE role = 'teacher'"))?.cnt ?? 0;
-    const courses = (await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM courses'))?.cnt ?? 0;
-    const publishedCourses = (await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM courses WHERE is_published = 1'))?.cnt ?? 0;
-    const enrollments = (await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM enrollments'))?.cnt ?? 0;
-    const quizAttempts = (await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM quiz_attempts'))?.cnt ?? 0;
-    const homeworkCount = (await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM homework'))?.cnt ?? 0;
-    const pendingHomework = (await queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM homework WHERE status = 'submitted'"))?.cnt ?? 0;
-    const totalEnergy = (await queryOne<{ total: number }>('SELECT COALESCE(SUM(energy), 0) as total FROM users'))?.total ?? 0;
-    const recentUsers = await queryAll('SELECT id, name, email, role, stage, created_at FROM users ORDER BY created_at DESC LIMIT 10');
+    const students = await dbCount('users', { role: 'student' });
+    const teachers = await dbCount('users', { role: 'teacher' });
+    const courses = await dbCount('courses');
+    const enrollments = await dbCount('enrollments');
 
-    return NextResponse.json({ students, teachers, courses, publishedCourses, enrollments, quizAttempts, homeworkCount, pendingHomework, totalEnergy, recentUsers });
+    const { count: pendingHomework } = await supabase
+      .from('homework')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'submitted');
+
+    const { data: energyData } = await supabase.from('users').select('energy');
+    const totalEnergy = (energyData || []).reduce((sum: number, u: Record<string, unknown>) => sum + ((u.energy as number) || 0), 0);
+
+    const { data: recentUsers } = await supabase
+      .from('users')
+      .select('id, name, email, role, stage, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    return NextResponse.json({
+      students,
+      teachers,
+      courses,
+      publishedCourses: courses,
+      enrollments,
+      quizAttempts: 0,
+      homeworkCount: 0,
+      pendingHomework: pendingHomework || 0,
+      totalEnergy,
+      recentUsers: recentUsers || [],
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'خطأ غير معروف';
     return NextResponse.json({ error: msg }, { status: 500 });

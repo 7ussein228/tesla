@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { queryOne, runInsert } from '@/lib/db';
+import { dbSelect, dbUpdate } from '@/lib/db';
 import { signToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
@@ -10,18 +10,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'البريد وكلمة المرور مطلوبين' }, { status: 400 });
     }
 
-    const user = await queryOne<{ id: number; name: string; email: string; password: string; role: string; stage: string; energy: number; phone: string }>(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
+    const user = await dbSelect('users', { email }, { single: true }) as Record<string, unknown> | undefined;
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    if (!user || !(await bcrypt.compare(password, user.password as string))) {
       return NextResponse.json({ error: 'بيانات الدخول غير صحيحة' }, { status: 401 });
     }
 
-    await runInsert('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1', [String(user.id)]);
+    await dbUpdate('users', { last_login: new Date().toISOString() }, { id: user.id });
 
-    const token = signToken({ id: user.id, role: user.role });
+    const token = signToken({ id: user.id as number, role: user.role as string });
     const { password: _, ...safeUser } = user;
     return NextResponse.json({ token, user: safeUser });
   } catch (err: unknown) {

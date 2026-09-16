@@ -16,82 +16,65 @@ export async function execSql(query: string, params: string[] = []) {
   return data || [];
 }
 
-export async function queryOne<T = Record<string, unknown>>(query: string, params: string[] = []): Promise<T | undefined> {
-  const trimmed = query.trim();
-  const upper = trimmed.toUpperCase();
-
-  let wrapped = query;
-  if (upper.startsWith('SELECT') && !trimmed.includes('row_to_json')) {
-    const fromIdx = trimmed.toUpperCase().indexOf('\nFROM ');
-    const fromIdx2 = trimmed.toUpperCase().indexOf(' FROM ');
-    const idx = fromIdx > 0 ? fromIdx : fromIdx2;
-    if (idx > 0) {
-      const selectPart = trimmed.substring(0, idx);
-      const rest = trimmed.substring(idx);
-      wrapped = `SELECT row_to_json(t) FROM (${selectPart}${rest}) t`;
-    }
+// Direct table helpers using Supabase query builder (no RPC needed)
+export async function dbSelect(table: string, filters: Record<string, unknown> = {}, options: { single?: boolean; orderBy?: string; ascending?: boolean; limit?: number } = {}) {
+  let query = supabase.from(table).select('*');
+  for (const [key, val] of Object.entries(filters)) {
+    query = query.eq(key, val);
   }
-
-  const { data, error } = await supabase.rpc('exec_sql', { query: wrapped, params: params.map(String) });
-  if (error) {
-    console.error('[Supabase] queryOne error:', error.message);
-    return undefined;
+  if (options.orderBy) query = query.order(options.orderBy, { ascending: options.ascending ?? false });
+  if (options.limit) query = query.limit(options.limit);
+  if (options.single) {
+    const { data, error } = await query.single();
+    if (error) { console.error(`[Supabase] select single from ${table}:`, error.message); return undefined; }
+    return data;
   }
-  return data?.[0] as T | undefined;
+  const { data, error } = await query;
+  if (error) { console.error(`[Supabase] select from ${table}:`, error.message); return []; }
+  return data || [];
 }
 
-export async function queryAll<T = Record<string, unknown>>(query: string, params: string[] = []): Promise<T[]> {
-  const trimmed = query.trim();
-  const upper = trimmed.toUpperCase();
+export async function dbInsert(table: string, row: Record<string, unknown>) {
+  const { data, error } = await supabase.from(table).insert(row).select().single();
+  if (error) { console.error(`[Supabase] insert into ${table}:`, error.message); return null; }
+  return data;
+}
 
-  let wrapped = query;
-  if (upper.startsWith('SELECT') && !trimmed.includes('row_to_json')) {
-    const fromIdx = trimmed.toUpperCase().indexOf('\nFROM ');
-    const fromIdx2 = trimmed.toUpperCase().indexOf(' FROM ');
-    const idx = fromIdx > 0 ? fromIdx : fromIdx2;
-    if (idx > 0) {
-      const selectPart = trimmed.substring(0, idx);
-      const rest = trimmed.substring(idx);
-      wrapped = `SELECT row_to_json(t) FROM (${selectPart}${rest}) t`;
-    }
+export async function dbUpdate(table: string, updates: Record<string, unknown>, filters: Record<string, unknown>) {
+  let query = supabase.from(table).update(updates);
+  for (const [key, val] of Object.entries(filters)) {
+    query = query.eq(key, val);
   }
+  const { error } = await query;
+  if (error) { console.error(`[Supabase] update ${table}:`, error.message); return false; }
+  return true;
+}
 
-  const { data, error } = await supabase.rpc('exec_sql', { query: wrapped, params: params.map(String) });
+export async function dbDelete(table: string, filters: Record<string, unknown>) {
+  let query = supabase.from(table).delete();
+  for (const [key, val] of Object.entries(filters)) {
+    query = query.eq(key, val);
+  }
+  const { error } = await query;
+  if (error) { console.error(`[Supabase] delete from ${table}:`, error.message); return false; }
+  return true;
+}
+
+export async function dbCount(table: string, filters: Record<string, unknown> = {}) {
+  let query = supabase.from(table).select('*', { count: 'exact', head: true });
+  for (const [key, val] of Object.entries(filters)) {
+    query = query.eq(key, val);
+  }
+  const { count, error } = await query;
+  if (error) { console.error(`[Supabase] count ${table}:`, error.message); return 0; }
+  return count || 0;
+}
+
+export async function dbRaw(sql: string, params: string[] = []) {
+  const { data, error } = await supabase.rpc('exec_sql', { query: sql, params });
   if (error) {
-    console.error('[Supabase] queryAll error:', error.message);
+    console.error('[Supabase] dbRaw error:', error.message);
     return [];
   }
-  return (data || []) as T[];
-}
-
-export async function runInsert(query: string, params: string[]): Promise<{ lastInsertRowid: number; changes: number }> {
-  let q = query;
-  if (q.toUpperCase().includes('INSERT OR IGNORE')) {
-    q = q.replace(/INSERT\s+OR\s+IGNORE\s+INTO/i, 'INSERT INTO');
-    if (!q.includes('ON CONFLICT')) q += ' ON CONFLICT DO NOTHING';
-  }
-  const { data, error } = await supabase.rpc('exec_sql', { query: q, params: params.map(String) });
-  if (error) {
-    console.error('[Supabase] runInsert error:', error.message);
-    return { lastInsertRowid: 0, changes: 0 };
-  }
-  return { lastInsertRowid: data?.[0]?.id || 0, changes: 1 };
-}
-
-export async function runUpdate(query: string, params: string[]): Promise<{ changes: number }> {
-  const { error } = await supabase.rpc('exec_sql', { query, params: params.map(String) });
-  if (error) {
-    console.error('[Supabase] runUpdate error:', error.message);
-    return { changes: 0 };
-  }
-  return { changes: 1 };
-}
-
-export async function runDelete(query: string, params: string[]): Promise<{ changes: number }> {
-  const { error } = await supabase.rpc('exec_sql', { query, params: params.map(String) });
-  if (error) {
-    console.error('[Supabase] runDelete error:', error.message);
-    return { changes: 0 };
-  }
-  return { changes: 1 };
+  return data || [];
 }

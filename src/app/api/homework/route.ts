@@ -1,15 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryAll } from '@/lib/db';
+import { supabase } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
 export const GET = requireAuth(async (req: NextRequest, user) => {
   try {
-    const homework = await queryAll(
-      `SELECT h.*, s.title as sheet_title, c.title as course_title 
-       FROM homework h JOIN sheets s ON h.sheet_id = s.id JOIN courses c ON s.course_id = c.id 
-       WHERE h.student_id = $1 ORDER BY h.submitted_at DESC`,
-      [String(user.id)]
-    );
+    const { data, error } = await supabase
+      .from('homework')
+      .select('*, sheets(title, courses(title))')
+      .eq('student_id', user.id)
+      .order('submitted_at', { ascending: false });
+
+    if (error) {
+      console.error('[Homework] my error:', error.message);
+      return NextResponse.json([]);
+    }
+
+    const homework = (data || []).map((h: Record<string, unknown>) => {
+      const sheet = h.sheets as Record<string, unknown> | null;
+      const course = sheet?.courses as Record<string, unknown> | null;
+      return {
+        ...h,
+        sheet_title: sheet?.title || '',
+        course_title: course?.title || '',
+        sheets: undefined,
+      };
+    });
+
     return NextResponse.json(homework);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'خطأ غير معروف';

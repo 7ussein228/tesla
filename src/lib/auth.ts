@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { queryOne } from './db';
+import { dbSelect } from './db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'newton-platform-secret-key-2026';
 
@@ -32,12 +32,9 @@ export async function getUserFromRequest(req: NextRequest): Promise<AuthUser | n
   const payload = verifyToken(token);
   if (!payload) return null;
 
-  const user = await queryOne<{ id: number; name: string; email: string; role: string; stage: string }>(
-    'SELECT id, name, email, role, stage FROM users WHERE id = $1',
-    [String(payload.id)]
-  );
+  const user = await dbSelect('users', { id: payload.id }, { single: true }) as Record<string, unknown> | undefined;
   if (!user) return null;
-  return user as AuthUser;
+  return { id: user.id as number, name: user.name as string, email: user.email as string, role: user.role as 'student' | 'teacher' | 'admin', stage: user.stage as string };
 }
 
 export function requireAuth(handler: (req: NextRequest, user: AuthUser) => Promise<NextResponse>) {

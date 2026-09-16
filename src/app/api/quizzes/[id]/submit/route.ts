@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryOne, queryAll, runInsert } from '@/lib/db';
+import { supabase, dbInsert, dbUpdate } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
 export const POST = requireAuth(async (req: NextRequest, user) => {
   try {
-    const { id } = await req.nextUrl.pathname.match(/\/quizzes\/(\d+)\/submit/)
-      ? { id: req.nextUrl.pathname.split('/')[3] }
-      : { id: '' };
+    const parts = req.nextUrl.pathname.split('/');
+    const quizId = parts[3];
 
-    const quiz = await queryOne('SELECT * FROM quizzes WHERE id = $1', [id]);
+    const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single();
     if (!quiz) return NextResponse.json({ error: 'الكويز غير موجود' }, { status: 404 });
 
     const { answers } = await req.json();
-    const questions = await queryAll<{ id: number; points: number; correct_answer: string }>(
-      'SELECT * FROM quiz_questions WHERE quiz_id = $1', [id]
-    );
+    const { data: questions } = await supabase.from('quiz_questions').select('*').eq('quiz_id', quizId);
+
+    if (!questions) return NextResponse.json({ error: 'لا يوجد أسئلة' }, { status: 500 });
 
     let score = 0;
     let totalPoints = 0;
@@ -28,19 +27,23 @@ export const POST = requireAuth(async (req: NextRequest, user) => {
 
     const percentage = totalPoints > 0 ? Math.round((score / totalPoints) * 100) : 0;
 
-    await runInsert(
-      'INSERT INTO quiz_attempts (student_id, quiz_id, score, total_points, answers, completed_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)',
-      [String(user.id), id, String(percentage), String(totalPoints), JSON.stringify(answers)]
-    );
+    await dbInsert('quiz_attempts', {
+      student_id: user.id,
+      quiz_id: Number(quizId),
+      score: percentage,
+      total_points: totalPoints,
+      answers: JSON.stringify(answers),
+      completed_at: new Date().toISOString(),
+    });
 
-    if (percentage >= (quiz as { passing_score: number }).passing_score) {
-      await runInsert('UPDATE users SET energy = energy + $1 WHERE id = $2', [String(percentage), String(user.id)]);
+    if (percentage >= quiz.passing_score) {
+      await dbUpdate('users', { energy: (await supabase.from('users').select('energy').eq('id', user.id).single()).data?.energy + percentage }, { id: user.id });
     }
 
     return NextResponse.json({
       score: percentage,
       total_points: totalPoints,
-      passed: percentage >= (quiz as { passing_score: number }).passing_score,
+      passed: percentage >= quiz.passing_score,
       results,
     });
   } catch (err: unknown) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryAll, runInsert } from '@/lib/db';
+import { supabase, dbInsert } from '@/lib/db';
 import { requireAuth, requireRole } from '@/lib/auth';
 
 export const GET = async (req: NextRequest) => {
@@ -7,25 +7,29 @@ export const GET = async (req: NextRequest) => {
     const { searchParams } = new URL(req.url);
     const stage = searchParams.get('stage');
 
-    let courses;
+    let query = supabase.from('courses').select('*, users!courses_teacher_id_fkey(name), lectures(count), enrollments(count)');
+
     if (stage && stage !== 'all') {
-      courses = await queryAll(
-        `SELECT c.*, u.name as teacher_name, 
-         (SELECT COUNT(*) FROM lectures WHERE course_id = c.id) as lecture_count, 
-         (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as student_count 
-         FROM courses c LEFT JOIN users u ON c.teacher_id = u.id 
-         WHERE c.is_published = 1 AND c.stage = $1 ORDER BY c.created_at DESC`,
-        [stage]
-      );
-    } else {
-      courses = await queryAll(
-        `SELECT c.*, u.name as teacher_name, 
-         (SELECT COUNT(*) FROM lectures WHERE course_id = c.id) as lecture_count, 
-         (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as student_count 
-         FROM courses c LEFT JOIN users u ON c.teacher_id = u.id 
-         WHERE c.is_published = 1 ORDER BY c.created_at DESC`
-      );
+      query = query.eq('stage', stage);
     }
+    query = query.eq('is_published', 1).order('created_at', { ascending: false });
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[Courses] list error:', error.message);
+      return NextResponse.json([], { status: 500 });
+    }
+
+    const courses = (data || []).map((c: Record<string, unknown>) => ({
+      ...c,
+      teacher_name: (c.users as Record<string, string>)?.name || '',
+      lecture_count: Array.isArray(c.lectures) ? c.lectures.length : 0,
+      student_count: Array.isArray(c.enrollments) ? c.enrollments.length : 0,
+      users: undefined,
+      lectures: undefined,
+      enrollments: undefined,
+    }));
+
     return NextResponse.json(courses);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'خطأ غير معروف';
@@ -40,13 +44,20 @@ export const POST = requireRole(['teacher', 'admin'], async (req: NextRequest, u
       return NextResponse.json({ error: 'اسم الكورس والمرحلة مطلوبين' }, { status: 400 });
     }
 
-    const result = await runInsert(
-      'INSERT INTO courses (title, description, stage, price, teacher_id, is_published) VALUES ($1, $2, $3, $4, $5, 1)',
-      [title, description || '', stage, String(price || 0), String(user.id)]
-    );
+    const course = await dbInsert('courses', {
+      title,
+      description: description || '',
+      stage,
+      price: price || 0,
+      teacher_id: user.id,
+      is_published: 1,
+    });
 
-    const course = await queryAll('SELECT * FROM courses WHERE id = $1', [String(result.lastInsertRowid)]);
-    return NextResponse.json(course[0]);
+    if (!course) {
+      return NextResponse.json({ error: 'خطأ في إنشاء الكورس' }, { status: 500 });
+    }
+
+    return NextResponse.json(course);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'خطأ غير معروف';
     return NextResponse.json({ error: msg }, { status: 500 });
